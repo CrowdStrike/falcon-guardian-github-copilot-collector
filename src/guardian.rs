@@ -1,6 +1,7 @@
 //! Falcon Guardian API client.
 
 use std::{
+  str::FromStr,
   thread,
   time::{Duration, Instant},
 };
@@ -12,12 +13,39 @@ use serde_json::Value;
 
 use crate::Result;
 
+/// Host suffixes the token may be sent to.
+const ALLOWED_HOST_SUFFIXES: &[&str] = &[".crowdstrike.com", ".collector-crowdstrike.com"];
+
+/// A Falcon Guardian base URL.
+#[derive(Clone)]
+pub struct BaseUrl(Url);
+
+impl FromStr for BaseUrl {
+  type Err = String;
+
+  fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+    let url = Url::parse(s).map_err(|e| e.to_string())?;
+    let allowed = url.scheme() == "https"
+      && url
+        .domain()
+        .is_some_and(|host| ALLOWED_HOST_SUFFIXES.iter().any(|s| host.ends_with(s)));
+    if allowed {
+      Ok(Self(url))
+    } else {
+      Err(format!(
+        "{s} is not an HTTPS URL on a host ending in {}",
+        ALLOWED_HOST_SUFFIXES.join(" or ")
+      ))
+    }
+  }
+}
+
 /// Falcon Guardian API client.
 // Do not derive Debug here.
 #[derive(Builder)]
 pub struct Client {
   /// Falcon Guardian base URL, such as `https://api.crowdstrike.com/aidr/aiguard`.
-  base_url: Url,
+  base_url: BaseUrl,
   /// Collector token.
   token: String,
   /// Time to wait for a verdict, including polling.
@@ -40,7 +68,7 @@ impl Client {
     let remaining = || deadline.saturating_duration_since(Instant::now());
     let url = format!(
       "{}/v1/guard_chat_completions",
-      self.base_url.as_str().trim_end_matches('/')
+      self.base_url.0.as_str().trim_end_matches('/')
     );
     let mut res = self
       .http
@@ -52,7 +80,7 @@ impl Client {
     let mut polls: u32 = 0;
     loop {
       let status = res.status();
-      let location = match step(&self.base_url, status, &res.text()?)? {
+      let location = match step(&self.base_url.0, status, &res.text()?)? {
         Step::Done(body) => return Ok(body),
         Step::Poll(location) => location,
       };
@@ -224,6 +252,28 @@ mod tests {
       "result": { "location": location, "retry_counter": 0, "ttl_mins": 5760 },
     })
     .to_string()
+  }
+
+  #[test]
+  fn base_url_must_be_https_on_a_crowdstrike_host() {
+    for url in [
+      "https://api.crowdstrike.com/aidr/aiguard",
+      "https://x.collector-crowdstrike.com/aidr/aiguard",
+      "https://API.CrowdStrike.com",
+    ] {
+      assert!(url.parse::<BaseUrl>().is_ok(), "{url}");
+    }
+    for url in [
+      "http://api.crowdstrike.com",
+      "https://crowdstrike.com",
+      "https://evilcrowdstrike.com",
+      "https://api.crowdstrike.com.evil.org",
+      "https://example.org",
+      "https://1.2.3.4",
+      "not a url",
+    ] {
+      assert!(url.parse::<BaseUrl>().is_err(), "{url}");
+    }
   }
 
   #[test]
