@@ -19,7 +19,6 @@ use serde_json::{Value, json};
 
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
-// Do not derive `Debug` here.
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
@@ -30,9 +29,6 @@ struct Args {
     default_value = "https://api.crowdstrike.com/aidr/aiguard"
   )]
   base_url: Url,
-  /// Collector token. Prefer passing as an environment variable.
-  #[arg(long, env = "CS_AIDR_TOKEN", hide_env_values = true)]
-  token: String,
   /// Seconds to wait for a verdict, including polling.
   #[arg(long, default_value_t = 30)]
   timeout: u64,
@@ -174,9 +170,13 @@ fn main() -> ExitCode {
     let e = "payload has no supported hook_event_name";
     return fail(&e, args.failure_mode, None);
   };
+  let Some(token) = env::var("CS_AIDR_TOKEN").ok().filter(|t| !t.is_empty()) else {
+    let e = format!("CS_AIDR_TOKEN is not set");
+    return fail(&e, args.failure_mode, Some(hook));
+  };
   let client = guardian::Client::builder()
     .base_url(args.base_url)
-    .token(args.token)
+    .token(token)
     .timeout(Duration::from_secs(args.timeout))
     .build();
   match run(&payload, &client) {
