@@ -22,7 +22,10 @@ pub struct Client {
   token: String,
   /// Time to wait for a verdict, including polling.
   timeout: Duration,
-  #[builder(skip)]
+  #[builder(skip = reqwest::blocking::Client::builder()
+    .redirect(reqwest::redirect::Policy::none())
+    .build()
+    .expect("TLS backend and system config should initialize"))]
   http: reqwest::blocking::Client,
 }
 
