@@ -172,7 +172,7 @@ fn main() -> ExitCode {
     return fail(&e, args.failure_mode, None);
   };
   let Some(token) = env::var("CS_AIDR_TOKEN").ok().filter(|t| !t.is_empty()) else {
-    let e = format!("CS_AIDR_TOKEN is not set");
+    let e = "CS_AIDR_TOKEN is not set";
     return fail(&e, args.failure_mode, Some(hook));
   };
   let client = guardian::Client::builder()
@@ -342,7 +342,9 @@ fn tool_call(tool: &ToolUse) -> Message {
 fn reply(hook: Hook, res: &GuardResponse) -> Result<Option<Value>> {
   if res.result.blocked {
     let summary = res.summary.as_deref().unwrap_or("blocked by policy");
-    return Ok(Some(block(hook, &format!("Falcon Guardian: {summary}"))));
+    let reason =
+      (res.result.display_message.clone()).unwrap_or_else(|| format!("Falcon Guardian: {summary}"));
+    return Ok(Some(block(hook, &reason)));
   }
   if !res.result.transformed {
     return Ok(None);
@@ -689,6 +691,16 @@ mod tests {
         }
       }))
     );
+  }
+
+  #[test]
+  fn display_message_replaces_the_block_reason() {
+    for message in ["Ask IT.", ""] {
+      let res = verdict(json!({ "blocked": true, "display_message": message }));
+      for hook in [Hook::UserPromptSubmit, Hook::PreToolUse, Hook::PostToolUse] {
+        assert_eq!(reply(hook, &res).unwrap(), Some(block(hook, message)));
+      }
+    }
   }
 
   #[test]

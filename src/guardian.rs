@@ -181,6 +181,9 @@ pub struct GuardResult {
   pub blocked: bool,
   #[serde(default)]
   pub transformed: bool,
+  /// Message to show the user when blocked or transformed. `Some("")` means
+  /// show nothing.
+  pub display_message: Option<String>,
   guard_output: Option<Value>,
 }
 
